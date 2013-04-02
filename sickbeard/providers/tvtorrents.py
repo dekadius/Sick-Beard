@@ -47,6 +47,8 @@ class TvTorrentsProvider(generic.TorrentProvider):
         
         self.supportsBacklog = True
 
+	self.supportsTorrentFileList = True
+
         self.cache = TvTorrentsCache(self)
 
         self.url = self.urls['base_url']
@@ -108,14 +110,7 @@ class TvTorrentsProvider(generic.TorrentProvider):
         if not show:
             return []
 
-        seasonEp = show.getAllEpisodes(season)
-
-        wantedEp = [x for x in seasonEp if show.getOverview(x.status) in (Overview.WANTED, Overview.QUAL)]          
-
-        #If Every episode in Season is a wanted Episode then only search for complete season 
-        # (TvTorrents add a complete season torrent at once when the last episode in the seasion has been
-        # broadcast, episode torrents are then deleted)
-        if wantedEp == seasonEp and not show.air_by_date:
+        if season != None and not show.air_by_date:
             search_string = {'Season': [], 'Episode': []}
             for show_name in set(show_name_helpers.allPossibleShowNames(show)):
                 ep_string = show_name +' Season %d Complete' % int(season) #1) ShowName Season X Complete   
@@ -179,13 +174,16 @@ class TvTorrentsProvider(generic.TorrentProvider):
     def _get_title_and_url(self, item):
         
         #title, url, id, seeders, leechers = item
-        title, url = item
+        title, url, infoHash = item
         
         if url:
             url = str(url).replace('&amp;','&')
 
         return (title, url)
 
+    def _get_title_id(self, item):
+        title, url, infoHash = item
+        return infoHash
 
     def parseResults(self, data):
         results = []
@@ -196,7 +194,7 @@ class TvTorrentsProvider(generic.TorrentProvider):
                 urlParams = '?info_hash=%s&digest=%s&hash=%s' % (infoHash, sickbeard.TVTORRENTS_DIGEST, sickbeard.TVTORRENTS_HASH)
                 url = self.urls['download'] % (urlParams)
                 #logger.log("Title: " + title + ", Infohash: " + infoHash + ", Url: " + url)
-                results.append((title, url))
+                results.append((title, url, infoHash))
         else:
             logger.log(u"Nothing found for " + searchUrl, logger.DEBUG)
 
@@ -217,6 +215,25 @@ class TvTorrentsProvider(generic.TorrentProvider):
             return None
 
         return response.content
+
+    def getFilesInTorrent(self, infoHash):
+	urlParams = '?info_hash=%s' % (infoHash)
+        detailsUrl =  self.urls['detail'] % (urlParams)
+        #logger.log("detailsUrl: " + detailsUrl)
+        filenames = self.parseDetails(detailsUrl)
+        return filenames
+
+    def parseDetails(self, detailsUrl):
+        data = self.getURL(detailsUrl)
+        results = []
+        if data:
+            allItems = re.findall("<tr class=\\\"list_even\\\">\s*<td>(.+)</td>", data)
+            for fileName in allItems:
+                #logger.log("Filename: " + fileName)
+                results.append(fileName)
+        else:
+            logger.log(u"No details found for " + detailsUrl, logger.DEBUG)
+        return results
  
 class TvTorrentsCache(tvcache.TVCache):
 
