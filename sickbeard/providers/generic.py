@@ -214,6 +214,9 @@ class GenericProvider:
             url = None
         
         return (title, url)
+
+    def _get_title_id(self, item):
+        return None
     
     def findEpisode (self, episode, manualSearch=False):
 
@@ -239,6 +242,7 @@ class GenericProvider:
         for item in itemList:
 
             (title, url) = self._get_title_and_url(item)
+            id = self._get_title_id(item)
 
             # parse the file name
             try:
@@ -265,11 +269,13 @@ class GenericProvider:
             logger.log(u"Found result " + title + " at " + url, logger.DEBUG)
 
             result = self.getResult([episode])
+            result.id = id
             result.url = url
             result.name = title
             result.quality = quality
             result.provider = self
             result.content = None 
+            result.filesWanted = None
             
             results.append(result)
 
@@ -286,6 +292,7 @@ class GenericProvider:
         for item in itemList:
 
             (title, url) = self._get_title_and_url(item)
+            id = self._get_title_id(item)
 
             quality = self.getQuality(item)
 
@@ -341,11 +348,13 @@ class GenericProvider:
                 epObj.append(show.getEpisode(actual_season, curEp))
 
             result = self.getResult(epObj)
+            result.id = id
             result.url = url
             result.name = title
             result.quality = quality
             result.provider = self
             result.content = None 
+            result.filesWanted = None
 
             if len(epObj) == 1:
                 epNum = epObj[0].episode
@@ -386,3 +395,8 @@ class TorrentProvider(GenericProvider):
         GenericProvider.__init__(self, name)
 
         self.providerType = GenericProvider.TORRENT
+
+	self.supportsTorrentFileList = False
+
+    def getFilesInTorrent(self, url):
+        return None

@@ -32,6 +32,7 @@ from sickbeard import clients
 from sickbeard import history
 from sickbeard import notifiers
 from sickbeard import nzbSplitter
+from sickbeard import torrentSplitter
 from sickbeard import ui
 from sickbeard import encodingKludge as ek
 from sickbeard import providers
@@ -118,6 +119,8 @@ def snatchEpisode(result, endStatus=SNATCHED):
 
     # TORRENTs can be sent to clients or saved to disk
     elif result.resultType == "torrent":
+        result.content = result.provider.getURL(result.url) if not result.url.startswith('magnet') else None
+
         # torrents are saved to disk when blackhole mode
         if sickbeard.TORRENT_METHOD == "blackhole": 
             dlResult = _downloadResult(result)
@@ -427,19 +430,19 @@ def findSeason(show, season):
 
             # If this is a torrent all we can do is leech the entire torrent, user will have to select which eps not do download in his torrent client
             else:
-                
-                # Season result from Torrent Provider must be a full-season torrent, creating multi-ep result for it.
-                logger.log(u"Adding multi-ep result for full-season torrent. Set the episodes you don't want to 'don't download' in your torrent client if desired!")
-                epObjs = []
-                for curEpNum in allEps:
-                    epObjs.append(show.getEpisode(season, curEpNum))
-                bestSeasonNZB.episodes = epObjs
+                if torrentSplitter.isSplittingSupported(bestSeasonNZB):
+                    # Season result from Torrent Provider must be a full-season torrent, creating multi-ep result for it.
+                    #logger.log(u"Adding multi-ep result for full-season torrent. Set the episodes you don't want to 'don't download' in your torrent client if desired!")
+                    epObjs = []
+                    for curEpNum in allEps:
+                        epObjs.append(show.getEpisode(season, curEpNum))
+                    bestSeasonNZB.episodes = epObjs
 
-                epNum = MULTI_EP_RESULT
-                if epNum in foundResults:
-                    foundResults[epNum].append(bestSeasonNZB)
-                else:
-                    foundResults[epNum] = [bestSeasonNZB]
+                    epNum = MULTI_EP_RESULT
+                    if epNum in foundResults:
+                        foundResults[epNum].append(bestSeasonNZB)
+                    else:
+                        foundResults[epNum] = [bestSeasonNZB]
 
     # go through multi-ep results and see if we really want them or not, get rid of the rest
     multiResults = {}
@@ -456,18 +459,17 @@ def findSeason(show, season):
                 # if we have results for the episode
                 if epNum in foundResults and len(foundResults[epNum]) > 0:
                     # but the multi-ep is worse quality, we don't want it
-                    # TODO: wtf is this False for
-                    #if False and multiResult.quality <= pickBestResult(foundResults[epNum]):
-                    #    notNeededEps.append(epNum)
-                    #else:
-                    neededEps.append(epNum)
+                    if multiResult.quality <= pickBestResult(foundResults[epNum]):
+                        notNeededEps.append(epNum)
+                    else:
+                        neededEps.append(epNum)
                 else:
                     neededEps.append(epNum)
 
             logger.log(u"Single-ep check result is neededEps: "+str(neededEps)+", notNeededEps: "+str(notNeededEps), logger.DEBUG)
 
             if not neededEps:
-                logger.log(u"All of these episodes were covered by single nzbs, ignoring this multi-ep result", logger.DEBUG)
+                logger.log(u"All of these episodes were covered by single nzbs/torrents, ignoring this multi-ep result", logger.DEBUG)
                 continue
 
             # check if these eps are already covered by another multi-result
@@ -483,8 +485,13 @@ def findSeason(show, season):
             logger.log(u"Multi-ep check result is multiNeededEps: "+str(multiNeededEps)+", multiNotNeededEps: "+str(multiNotNeededEps), logger.DEBUG)
 
             if not multiNeededEps:
-                logger.log(u"All of these episodes were covered by another multi-episode nzbs, ignoring this multi-ep result", logger.DEBUG)
+                logger.log(u"All of these episodes were covered by another multi-episode nzb/torrent, ignoring this multi-ep result", logger.DEBUG)
                 continue
+
+            # if it's a torrent provider that supports getting the torrent file list and the client supports specifying the files wanted,
+            # we need to specify which files in the multi-torrent matches the episodes we need
+            if bestSeasonNZB.provider.providerType == GenericProvider.TORRENT and torrentSplitter.isSplittingSupported(multiResult):
+                multiResult = torrentSplitter.splitResult(multiResult)
 
             # if we're keeping this multi-result then remember it
             for epObj in multiResult.episodes:

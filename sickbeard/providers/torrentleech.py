@@ -35,6 +35,7 @@ class TorrentLeechProvider(generic.TorrentProvider):
     urls = {'base_url' : 'http://torrentleech.org/',
             'login' : 'http://torrentleech.org/user/account/login/',
             'detail' : 'http://torrentleech.org/torrent/%s',
+            'filelist': 'http://torrentleech.org/torrents/torrent/filelist?torrentID=%s',
             'search' : 'http://torrentleech.org/torrents/browse/index/query/%s/categories/%s',
             'download' : 'http://torrentleech.org%s',
             }
@@ -44,6 +45,8 @@ class TorrentLeechProvider(generic.TorrentProvider):
         generic.TorrentProvider.__init__(self, "TorrentLeech")
         
         self.supportsBacklog = True
+
+        self.supportsTorrentFileList = True
 
         self.cache = TorrentLeechCache(self)
         
@@ -95,24 +98,23 @@ class TorrentLeechProvider(generic.TorrentProvider):
         if not show:
             return []
 
-        seasonEp = show.getAllEpisodes(season)
-
-        wantedEp = [x for x in seasonEp if show.getOverview(x.status) in (Overview.WANTED, Overview.QUAL)]          
-
-        #If Every episode in Season is a wanted Episode then search for Season first
-        if wantedEp == seasonEp and not show.air_by_date:
+        # If season is specified and show not "air by date" we get only the season search strings as these also should return matches
+        # for all episodes from that season
+        if season != None and not show.air_by_date:
             search_string = {'Season': [], 'Episode': []}
             for show_name in set(show_name_helpers.allPossibleShowNames(show)):
                 ep_string = show_name +' S%02d' % int(season) #1) ShowName SXX   
                 search_string['Season'].append(ep_string)
-                      
-        #Building the search string with the episodes we need         
-        for ep_obj in wantedEp:
-            search_string['Episode'] += self._get_episode_search_strings(ep_obj)[0]['Episode']
-        
-        #If no Episode is needed then return an empty list
-        if not search_string['Episode']:
-            return []
+	else:
+            seasonEp = show.getAllEpisodes(season)
+            wantedEp = [x for x in seasonEp if show.getOverview(x.status) in (Overview.WANTED, Overview.QUAL)]          
+            #Building the search string with the episodes we need         
+            for ep_obj in wantedEp:
+                search_string['Episode'] += self._get_episode_search_strings(ep_obj)[0]['Episode']
+            
+            #If no Episode is needed then return an empty list
+            if not search_string['Episode']:
+                return []
         
         return [search_string]
 
@@ -204,8 +206,12 @@ class TorrentLeechProvider(generic.TorrentProvider):
 
         return (title, url)
 
-    def getURL(self, url, headers=None):
+    def _get_title_id(self, item):
+        title, url, id, seeders, leechers = item
 
+        return id
+
+    def getURL(self, url, headers=None):
         if not self.session:
             self._doLogin()
 
@@ -219,6 +225,25 @@ class TorrentLeechProvider(generic.TorrentProvider):
             return None
 
         return response.content
+
+    def getFilesInTorrent(self, torrentId):
+        detailsUrl =  self.urls['filelist'] % (torrentId)
+        #logger.log("detailsUrl: " + detailsUrl)
+        filenames = self.parseDetails(detailsUrl)
+        return filenames
+
+    def parseDetails(self, detailsUrl):
+        data = self.getURL(detailsUrl)
+        results = []
+        if data:
+            allItems = re.findall("<tr id=[0-9]+>\s*<td>(.+)</td>", data)
+            for fileName in allItems:
+                #logger.log("Filename: " + fileName)
+                results.append(fileName)
+        else:
+            logger.log(u"No details found for " + detailsUrl, logger.DEBUG)
+        return results
+
        
 class TorrentLeechCache(tvcache.TVCache):
 
