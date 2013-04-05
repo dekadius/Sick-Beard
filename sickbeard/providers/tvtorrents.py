@@ -51,6 +51,8 @@ class TvTorrentsProvider(generic.TorrentProvider):
 
         self.url = self.urls['base_url']
 
+        self.maxResultPages = 20
+
         self.session = None
 
     def isEnabled(self):
@@ -111,7 +113,7 @@ class TvTorrentsProvider(generic.TorrentProvider):
         if season != None and not show.air_by_date:
             search_string = {'Season': [], 'Episode': []}
             for show_name in set(show_name_helpers.allPossibleShowNames(show)):
-                ep_string = show_name +' Season %d Complete' % int(season) #1) ShowName Season X Complete   
+                ep_string = show_name +' S%02d' % int(season) #1) ShowName Season X Complete   
                 search_string['Season'].append(ep_string)
         else:
             #Building the search string with the episodes we need         
@@ -159,11 +161,7 @@ class TvTorrentsProvider(generic.TorrentProvider):
 
                 logger.log(u"Search string: " + searchURL, logger.DEBUG)
         
-                data = self.getURL(searchURL)
-                if not data:
-                    return []
-
-                items[mode] += self.parseResults(data)
+                items[mode] += self.parseResults(searchURL)
 
             results += items[mode]  
                 
@@ -180,18 +178,33 @@ class TvTorrentsProvider(generic.TorrentProvider):
         return (title, url)
 
 
-    def parseResults(self, data):
+    def parseResults(self, searchURL):
         results = []
-        if data:
-            allItems = re.findall(">(.+) <br><a href=\\\"[A-Za-z0-9/\\.\\?]+info_hash=([a-f0-9]+)\\\">(.+)</a>", data)
-            for name, infoHash, release in allItems:
-                title = '%s %s' % (name, release)
-                urlParams = '?info_hash=%s&digest=%s&hash=%s' % (infoHash, sickbeard.TVTORRENTS_DIGEST, sickbeard.TVTORRENTS_HASH)
-                url = self.urls['download'] % (urlParams)
-                #logger.log("Title: " + title + ", Infohash: " + infoHash + ", Url: " + url)
-                results.append((title, url))
-        else:
-            logger.log(u"Nothing found for " + searchUrl, logger.DEBUG)
+
+        pageSearchUrl = searchURL
+        loopCount = 0
+        while pageSearchUrl:          
+            data = self.getURL(pageSearchUrl)
+            if data:
+                allItems = re.findall(">(.+) <br><a href=\\\"[A-Za-z0-9/\\.\\?]+info_hash=([a-f0-9]+)\\\">(.+)</a>", data)
+                for name, infoHash, release in allItems:
+                    title = '%s %s' % (name, release)
+                    urlParams = '?info_hash=%s&digest=%s&hash=%s' % (infoHash, sickbeard.TVTORRENTS_DIGEST, sickbeard.TVTORRENTS_HASH)
+                    url = self.urls['download'] % (urlParams)
+                    #logger.log("Title: " + title + ", Infohash: " + infoHash + ", Url: " + url)
+                    results.append((title, url))
+                
+                nextPageMatch = re.search("<a href=\\\"search.do\\?page=([0-9])+&search=(.+)\\\">&gt;&gt;</a>", data)
+                pageSearchUrl = self.urls['search'] % (nextPageMatch.group(2) + "&page=" + nextPageMatch.group(1)) if nextPageMatch else None
+                #logger.log("Next page url: " + str(pageSearchUrl))
+            else:
+                logger.log(u"Nothing found for " + searchURL, logger.DEBUG)
+                break
+        
+            loopCount += 1
+            if loopCount >= self.maxResultPages:
+                logger.log(u"Search resulted in too many result pages (" + loopCount + "): " + searchURL, logger.WARNING)
+                break
 
         return results
 

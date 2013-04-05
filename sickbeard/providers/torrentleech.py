@@ -50,6 +50,8 @@ class TorrentLeechProvider(generic.TorrentProvider):
         self.url = self.urls['base_url']
         
         self.categories = "2,26,27,32"
+
+        self.maxResultPages = 5
         
         self.session = None
 
@@ -150,42 +152,52 @@ class TorrentLeechProvider(generic.TorrentProvider):
 
                 logger.log(u"Search string: " + searchURL, logger.DEBUG)
         
-                data = self.getURL(searchURL)
-                if not data:
-                    return []
+                loopCount = 0
+                while searchURL:
+                    data = self.getURL(searchURL)
+                    if not data:
+                        break
 
-                try:
-                    html = BeautifulSoup(data)
-                    
-                    torrent_table = html.find('table', attrs = {'id' : 'torrenttable'})
-                    
-                    if not torrent_table:
-                        logger.log(u"No results found for: " + search_string + "(" + searchURL + ")", logger.DEBUG)
-                        return []
+                    try:
+                        html = BeautifulSoup(data)
+                        
+                        torrent_table = html.find('table', attrs = {'id' : 'torrenttable'})
+                        
+                        if not torrent_table:
+                            logger.log(u"No results found for: " + search_string + "(" + searchURL + ")", logger.DEBUG)
+                            return []
 
-                    for result in torrent_table.find_all('tr')[1:]:
+                        for result in torrent_table.find_all('tr')[1:]:
 
-                        link = result.find('td', attrs = {'class' : 'name'}).find('a')
-                        url = result.find('td', attrs = {'class' : 'quickdownload'}).find('a')
+                            link = result.find('td', attrs = {'class' : 'name'}).find('a')
+                            url = result.find('td', attrs = {'class' : 'quickdownload'}).find('a')
 
-                        title = link.string
-                        download_url = self.urls['download'] % url['href']
-                        id = int(link['href'].replace('/torrent/', ''))
-                        seeders = int(result.find('td', attrs = {'class' : 'seeders'}).string)
-                        leechers = int(result.find('td', attrs = {'class' : 'leechers'}).string)
+                            title = link.string
+                            download_url = self.urls['download'] % url['href']
+                            id = int(link['href'].replace('/torrent/', ''))
+                            seeders = int(result.find('td', attrs = {'class' : 'seeders'}).string)
+                            leechers = int(result.find('td', attrs = {'class' : 'leechers'}).string)
 
-                        #Filter unseeded torrent
-                        if seeders == 0 or not title \
-                        or not download_url:
-                            continue
+                            #Filter unseeded torrent
+                            if seeders == 0 or not title \
+                            or not download_url:
+                                continue
 
-                        item = title, download_url, id, seeders, leechers
-                        logger.log(u"Found result: " + title + "(" + searchURL + ")", logger.DEBUG)
+                            item = title, download_url, id, seeders, leechers
+                            logger.log(u"Found result: " + title + "(" + searchURL + ")", logger.DEBUG)
 
-                        items[mode].append(item)
+                            items[mode].append(item)
+                        
+                        next_page = html.find('a', attrs = {'class' : 'pagnext'})
+                        searchURL = self.urls['base_url'] + next_page['href'] if next_page else None
+                    except:
+                        logger.log(u"Failed to parsing " + self.name + " page url: " + searchURL, logger.ERROR)
 
-                except:
-                    logger.log(u"Failed to parsing " + self.name + " page url: " + searchURL, logger.ERROR)
+                    loopCount += 1 
+                    if loopCount >= self.maxResultPages:
+                        logger.log(u"Search resulted in too many result pages (" + loopCount + "): " + searchURL, logger.WARNING)
+                        break
+
 
             #For each search mode sort all the items by seeders
             items[mode].sort(key=lambda tup: tup[3], reverse=True)        
